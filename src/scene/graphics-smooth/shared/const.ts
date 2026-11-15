@@ -8,6 +8,8 @@ export enum JOINT_TYPE
 {
     NONE = 0,
     FILL = 1,
+    /** Four outline corners, with coverage evaluated for the whole rectangle. */
+    FILL_RECT = 2,
     JOINT_BEVEL = 4,
     JOINT_MITER = 8,
     JOINT_ROUND = 12,

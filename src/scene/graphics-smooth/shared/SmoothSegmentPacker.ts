@@ -84,6 +84,13 @@ export class SmoothSegmentPacker
             const prevCap = joints[i] & ~31;
             const joint = joints[i] & 31;
 
+            if (joint === JOINT_TYPE.FILL_RECT)
+            {
+                vertexSize += 4;
+                indexSize += 6;
+                continue;
+            }
+
             if (joint === JOINT_TYPE.FILL)
             {
                 foundTriangle = true;
@@ -154,6 +161,31 @@ export class SmoothSegmentPacker
             const fullJoint = joints[j];
             const prevCap = joints[j] & ~31;
             const joint = joints[j] & 31;
+
+            if (joint === JOINT_TYPE.FILL_RECT)
+            {
+                // Each vertex carries the same four outline corners; its joint selects the corner to expand.
+                for (let i = 0; i < 4; i++)
+                {
+                    for (let k = 0; k < 8; k++)
+                    {
+                        bufFloat[bufPos + k] = verts[(j * 2) + k];
+                    }
+                    bufFloat[bufPos + 8] = 0;
+                    bufFloat[bufPos + 9] = (16 * joint) + i;
+                    bufPos += GEOM_STRIDE;
+                }
+
+                indices[indPos] = index;
+                indices[indPos + 1] = index + 1;
+                indices[indPos + 2] = index + 2;
+                indices[indPos + 3] = index;
+                indices[indPos + 4] = index + 2;
+                indices[indPos + 5] = index + 3;
+                indPos += 6;
+                index += 4;
+                continue;
+            }
 
             if (joint === JOINT_TYPE.FILL)
             {

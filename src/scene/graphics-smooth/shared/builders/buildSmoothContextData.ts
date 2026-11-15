@@ -9,6 +9,7 @@ import { closePointEps } from '../../../graphics/shared/const';
 import { shapeBuilders } from '../../../graphics/shared/utils/buildContextBatches';
 import { generateTextureMatrix } from '../../../graphics/shared/utils/generateTextureFillMatrix';
 import { BatchableSmoothGraphics } from '../BatchableSmoothGraphics';
+import { JOINT_TYPE } from '../const';
 import { SmoothBuildData } from '../SmoothBuildData';
 import { SmoothSegmentPacker } from '../SmoothSegmentPacker';
 import { buildSmoothFill } from './buildSmoothFill';
@@ -181,7 +182,17 @@ function addShapePath(
 
             if (!isStroke)
             {
-                triangles = buildSmoothFill(points, holes ?? [], true, buildData);
+                if (shape.type === 'rectangle' && !holes?.length)
+                {
+                    // Keep all four boundaries available to the shader, including after transforms.
+                    // A convex fan only clips one edge per triangle and overfills thin rectangles.
+                    buildData.verts.push(...points);
+                    buildData.joints.push(JOINT_TYPE.FILL_RECT, JOINT_TYPE.NONE, JOINT_TYPE.NONE, JOINT_TYPE.NONE);
+                }
+                else
+                {
+                    triangles = buildSmoothFill(points, holes ?? [], true, buildData);
+                }
             }
             else
             {
