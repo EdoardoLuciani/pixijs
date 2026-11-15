@@ -31,6 +31,7 @@ function buildGlVertexSrc(includeLocalUniforms = true, textured = false): string
 precision highp float;
 
 const float FILL = 1.0;
+const float FILL_RECT = 2.0;
 const float BEVEL = 4.0;
 const float MITER = 8.0;
 const float ROUND = 12.0;
@@ -146,7 +147,28 @@ void main(void){
     vLine1 = vec4(0.0, 10.0, 1.0, 0.0);
     vLine2 = vec4(0.0, 10.0, 1.0, 0.0);
     vArc = vec4(0.0);
-    if (type == FILL) {
+    if (type == FILL_RECT) {
+        vec2 p0 = (worldMatrix * vec3(aPrev, 1.0)).xy;
+        vec2 p3 = (worldMatrix * vec3(aNext, 1.0)).xy;
+        vec2 edgeX = pointA - p0;
+        vec2 edgeY = p3 - p0;
+        float winding = edgeX.x * edgeY.y - edgeX.y * edgeY.x >= 0.0 ? 1.0 : -1.0;
+        vec2 normalX = vec2(edgeY.y, -edgeY.x) / max(length(edgeY), 0.000001) * winding;
+        vec2 normalY = vec2(-edgeX.y, edgeX.x) / max(length(edgeX), 0.000001) * winding;
+        vec2 sides;
+        if (vertexNum < 0.5) { pos = p0; sides = vec2(1.0, 1.0); }
+        else if (vertexNum < 1.5) { pos = pointA; sides = vec2(-1.0, 1.0); }
+        else if (vertexNum < 2.5) { pos = pointB; sides = vec2(-1.0, -1.0); }
+        else { pos = p3; sides = vec2(1.0, -1.0); }
+        // Expand in render-target pixels, using the transformed outline rather than scaled local bisectors.
+        vec2 bisect = (sides.x * normalX + sides.y * normalY)
+            / max(1.0 + sides.x * sides.y * dot(normalX, normalY), 0.000001);
+        pos -= bisect * expand;
+        vLine1 = vec4(dot(pos - p0, normalX), dot(pos - p0, normalY),
+            dot(pointB - pos, normalX), dot(pointB - pos, normalY)) * resolution;
+        vTravel = vec2(0.0);
+        vType = 5.0;
+    } else if (type == FILL) {
         pos = pointA;
         vType = 0.0;
         vLine2 = vec4(-2.0, -2.0, -2.0, 0.0);
@@ -438,7 +460,12 @@ float pixelLine(float x, float A, float B) {
 
 function glHhaaAlphaBlock(): string
 {
-    return `    if (vType < 0.5) {
+    return `    if (vType > 4.5) {
+        // Intersect each opposing pair with the pixel footprint, even when the strip is subpixel.
+        float xCoverage = max(min(vLine1.x + 0.5, 1.0) - max(0.5 - vLine1.z, 0.0), 0.0);
+        float yCoverage = max(min(vLine1.y + 0.5, 1.0) - max(0.5 - vLine1.w, 0.0), 0.0);
+        alpha = xCoverage * yCoverage;
+    } else if (vType < 0.5) {
         float left = pixelLine(-vLine1.y - vLine1.x, vLine1.z, vLine1.w);
         float right = pixelLine(vLine1.y - vLine1.x, vLine1.z, vLine1.w);
         float near = vLine2.x - 0.5;
@@ -566,6 +593,7 @@ struct VSOutput {
 }
 
 const FILL: f32 = 1.0;
+const FILL_RECT: f32 = 2.0;
 const BEVEL: f32 = 4.0;
 const MITER: f32 = 8.0;
 const ROUND: f32 = 12.0;
@@ -677,7 +705,27 @@ fn mainVertex(input: VSInput) -> VSOutput {
         lineAlignment = -lineAlignment;
     }
 
-    if (jointType == FILL) {
+    if (jointType == FILL_RECT) {
+        let p0 = (worldMatrix * vec3<f32>(input.aPrev, 1.0)).xy;
+        let p3 = (worldMatrix * vec3<f32>(input.aNext, 1.0)).xy;
+        let edgeX = pointA - p0;
+        let edgeY = p3 - p0;
+        let winding = select(-1.0, 1.0, edgeX.x * edgeY.y - edgeX.y * edgeY.x >= 0.0);
+        let normalX = vec2<f32>(edgeY.y, -edgeY.x) / max(length(edgeY), 0.000001) * winding;
+        let normalY = vec2<f32>(-edgeX.y, edgeX.x) / max(length(edgeX), 0.000001) * winding;
+        var sides: vec2<f32>;
+        if (vertexNum < 0.5) { pos = p0; sides = vec2<f32>(1.0, 1.0); }
+        else if (vertexNum < 1.5) { pos = pointA; sides = vec2<f32>(-1.0, 1.0); }
+        else if (vertexNum < 2.5) { pos = pointB; sides = vec2<f32>(-1.0, -1.0); }
+        else { pos = p3; sides = vec2<f32>(1.0, -1.0); }
+        // Expand in render-target pixels, using the transformed outline rather than scaled local bisectors.
+        let bisect = (sides.x * normalX + sides.y * normalY)
+            / max(1.0 + sides.x * sides.y * dot(normalX, normalY), 0.000001);
+        pos -= bisect * expand;
+        output.vLine1 = vec4<f32>(dot(pos - p0, normalX), dot(pos - p0, normalY),
+            dot(pointB - pos, normalX), dot(pointB - pos, normalY)) * resolution;
+        output.vType = 5.0;
+    } else if (jointType == FILL) {
         pos = pointA;
         output.vType = 0.0;
         output.vLine2 = vec4<f32>(-2.0, -2.0, -2.0, 0.0);
@@ -917,7 +965,12 @@ fn mainFragment(input: VSOutput) -> @location(0) vec4<f32> {
 function wgslHhaaAlphaBlock(): string
 {
     return `
-    if (input.vType < 0.5) {
+    if (input.vType > 4.5) {
+        // Intersect each opposing pair with the pixel footprint, even when the strip is subpixel.
+        let xCoverage = max(min(vLine1.x + 0.5, 1.0) - max(0.5 - vLine1.z, 0.0), 0.0);
+        let yCoverage = max(min(vLine1.y + 0.5, 1.0) - max(0.5 - vLine1.w, 0.0), 0.0);
+        alpha = xCoverage * yCoverage;
+    } else if (input.vType < 0.5) {
         let left = pixelLine(-vLine1.y - vLine1.x, vLine1.z, vLine1.w);
         let right = pixelLine(vLine1.y - vLine1.x, vLine1.z, vLine1.w);
         let near = vLine2.x - 0.5;

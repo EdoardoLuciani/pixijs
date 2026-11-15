@@ -127,6 +127,49 @@ describe('SmoothGraphics', () =>
             expect(Math.abs(notBatchedValue - 128)).toBeLessThanOrEqual(1);
         });
 
+        it.each(['batch', 'no-batch'] as const)('should not thicken the ends of thin rectangles (%s)', (batchMode) =>
+        {
+            const graphics = new SmoothGraphics().rect(10, 20, 80, 4).fill(0xffffff);
+
+            graphics.context.batchMode = batchMode;
+            const red = getRedChannel(renderer, graphics);
+
+            for (const x of [12, 50, 87])
+            {
+                expect(red[(19 * 100) + x]).toBe(0);
+                expect(red[(24 * 100) + x]).toBe(0);
+                expect(red[(20 * 100) + x]).toBe(255);
+                expect(red[(23 * 100) + x]).toBe(255);
+            }
+
+            graphics.destroy();
+        });
+
+        it.each(['batch', 'no-batch'] as const)('should preserve subpixel rectangle coverage and alpha (%s)', (batchMode) =>
+        {
+            for (const scaleX of [0.64, -0.64])
+            {
+                const graphics = new SmoothGraphics()
+                    .rect(10.25, 20.25, 80, 0.5)
+                    .fill({ color: 0xffffff, alpha: 0.5 });
+
+                graphics.context.batchMode = batchMode;
+                graphics.scale.x = scaleX;
+                graphics.x = scaleX < 0 ? 64 : 0;
+                const red = getRedChannel(renderer, graphics);
+
+                for (const x of [10, 30, 50])
+                {
+                    // Half a pixel at half opacity: no opaque end caps or overlapping AA fringes.
+                    expect(Math.abs(red[(20 * 100) + x] - 64)).toBeLessThanOrEqual(1);
+                    expect(red[(19 * 100) + x]).toBe(0);
+                    expect(red[(21 * 100) + x]).toBe(0);
+                }
+
+                graphics.destroy();
+            }
+        });
+
         it('should draw a context that the regular context system set up first', () =>
         {
             const graphics = new SmoothGraphics().rect(0, 0, 40, 40).fill(0xff0000);
